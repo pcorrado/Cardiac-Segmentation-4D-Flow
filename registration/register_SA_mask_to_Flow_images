@@ -1,0 +1,31 @@
+#!/bin/bash
+
+NUMPARAMS=$#
+
+if [ $NUMPARAMS -lt 3  ]
+then
+echo " USAGE ::  "
+echo "  antsaffine_LVFlow  AVG_MAG.nii.gz sa_avg.nii.gz seg_sa.nii.gz"
+exit
+fi
+
+AVG_MAG=${1}
+SA_AVG=${2}
+SEG_SA=${3}
+
+echo "Arg 1: $1"
+echo "Arg 2: $2"
+echo "Arg 3: $3"
+
+echo "AVG_MAG: $AVG_MAG"
+echo "SA_AVG: $SA_AVG"
+echo "SEG_SA: $SEG_SA"
+
+
+antsRegistration --dimensionality 3 --output SA2Flow --transform Rigid[0.01] --interpolation Linear --verbose 1 --convergence [30, 1e-3, 10] --shrink-factors 2 --smoothing-sigmas 2 --metric  CC[$AVG_MAG, $SA_AVG]  --winsorize-image-intensities [0.01, 0.6]
+
+
+antsApplyTransforms -d 3 -e 0 -i $SA_AVG -t SA2Flow0GenericAffine.mat -n Linear -r $AVG_MAG -o registeredSA.nii.gz -v 1
+
+
+antsApplyTransforms -d 3 -e 3 -i $SEG_SA -t SA2Flow0GenericAffine.mat -n NearestNeighbor -r $AVG_MAG -o registeredMask.nii.gz -v 1
