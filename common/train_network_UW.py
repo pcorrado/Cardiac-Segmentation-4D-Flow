@@ -27,16 +27,13 @@ import matplotlib.pyplot as plt
 
 """ Parameters """
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_enum('seq_name', 'sa',
-                         ['sa', 'la_2ch', 'la_4ch'],
-                         'Sequence name.')
 tf.app.flags.DEFINE_integer('image_size', 192,
                             'Image size after cropping.')
 tf.app.flags.DEFINE_integer('train_batch_size', 20,
                             'Number of images for each training batch.')
 tf.app.flags.DEFINE_integer('validation_batch_size', 20,
                             'Number of images for each validation batch.')
-tf.app.flags.DEFINE_integer('train_iteration', 3000,
+tf.app.flags.DEFINE_integer('train_iteration', 10000,
                             'Number of training iterations.')
 tf.app.flags.DEFINE_integer('num_filter', 16,
                             'Number of filters for the first convolution layer.')
@@ -87,10 +84,6 @@ def get_random_batch(filename_list, batch_size, image_size=192, data_augmentatio
 
         # Normalise the image size
         X, Y, Z, T = image.shape
-        # cx, cy = int(X / 2), int(Y / 2)
-        # image = crop_image(image, cx, cy, image_size)
-        # label = crop_image(label, cx, cy, image_size)
-
 
         # Intensity rescaling
         image = rescale_intensity(image, (1.0, 99.0))
@@ -152,24 +145,7 @@ def main(argv=None):
     training_pl = tf.placeholder(tf.bool, shape=[], name='training')
     print('Placeholder training_pl.name = ' + training_pl.name)
 
-    # Determine the number of label classes according to the manual annotation procedure
-    # for each image sequence.
-    n_class = 0
-    if FLAGS.seq_name == 'sa':
-        # sa, short-axis images
-        # 4 classes (background, LV cavity, LV myocardium, RV cavity)
-        n_class = 4
-    elif FLAGS.seq_name == 'la_2ch':
-        # la_2ch, long-axis 2 chamber view images
-        # 2 classes (background, LA cavity)
-        n_class = 2
-    elif FLAGS.seq_name == 'la_4ch':
-        # la_4ch, long-axis 4 chamber views
-        # 3 classes (background, LA cavity, RA cavity)
-        n_class = 3
-    else:
-        print('Error: unknown seq_name {0}.'.format(FLAGS.seq_name))
-        exit(0)
+    n_class = 4
 
     # The number of resolution levels
     n_level = FLAGS.num_level
@@ -253,7 +229,6 @@ def main(argv=None):
 
         # Iterate
         for iteration in range(1, 1 + FLAGS.train_iteration):
-
             # For each iteration, we randomly choose a batch of subjects
             print('Iteration {0}: training...'.format(iteration))
             start_time_iter = time.time()
@@ -264,18 +239,10 @@ def main(argv=None):
                                               data_augmentation=True,
                                               shift=0, rotate=90, scale=0.2,
                                               intensity=0, flip=False)
-            # plt.figure()
-            # imgplot = plt.imshow(images[0][:,:,0])
-            # plt.show()
-            # plt.figure()
-            # imgplot2 = plt.imshow(labels[0])
-            # plt.show()
-            # return
 
             # Stochastic optimisation using this batch
             _, train_loss, train_acc = sess.run([train_op, loss, accuracy],
                                                 {image_pl: images, label_pl: labels, training_pl: True})
-    #
             summary = tf.Summary()
             summary.value.add(tag='loss', simple_value=train_loss)
             summary.value.add(tag='accuracy', simple_value=train_acc)
@@ -289,31 +256,16 @@ def main(argv=None):
                                                   image_size=FLAGS.image_size,
                                                   data_augmentation=False)
 
-                if FLAGS.seq_name == 'sa':
-                    validation_loss, validation_acc, validation_dice_lv, validation_dice_myo, validation_dice_rv = \
-                        sess.run([loss, accuracy, dice_lv, dice_myo, dice_rv],
-                                 {image_pl: images, label_pl: labels, training_pl: False})
-                elif FLAGS.seq_name == 'la_2ch':
-                    validation_loss, validation_acc, validation_dice_la = \
-                        sess.run([loss, accuracy, dice_la],
-                                 {image_pl: images, label_pl: labels, training_pl: False})
-                elif FLAGS.seq_name == 'la_4ch':
-                    validation_loss, validation_acc, validation_dice_la, validation_dice_ra = \
-                        sess.run([loss, accuracy, dice_la, dice_ra],
-                                 {image_pl: images, label_pl: labels, training_pl: False})
+                validation_loss, validation_acc, validation_dice_lv, validation_dice_myo, validation_dice_rv = \
+                    sess.run([loss, accuracy, dice_lv, dice_myo, dice_rv], {image_pl: images, label_pl: labels, training_pl: False})
 
                 summary = tf.Summary()
                 summary.value.add(tag='loss', simple_value=validation_loss)
                 summary.value.add(tag='accuracy', simple_value=validation_acc)
-                if FLAGS.seq_name == 'sa':
-                    summary.value.add(tag='dice_lv', simple_value=validation_dice_lv)
-                    summary.value.add(tag='dice_myo', simple_value=validation_dice_myo)
-                    summary.value.add(tag='dice_rv', simple_value=validation_dice_rv)
-                elif FLAGS.seq_name == 'la_2ch':
-                    summary.value.add(tag='dice_la', simple_value=validation_dice_la)
-                elif FLAGS.seq_name == 'la_4ch':
-                    summary.value.add(tag='dice_la', simple_value=validation_dice_la)
-                    summary.value.add(tag='dice_ra', simple_value=validation_dice_ra)
+                summary.value.add(tag='dice_lv', simple_value=validation_dice_lv)
+                summary.value.add(tag='dice_myo', simple_value=validation_dice_myo)
+                summary.value.add(tag='dice_rv', simple_value=validation_dice_rv)
+
                 validation_writer.add_summary(summary, iteration)
 
                 # Print the results for this iteration
@@ -323,15 +275,9 @@ def main(argv=None):
                 print('  training accuracy:\t\t{:.2f}%'.format(train_acc * 100))
                 print('  validation loss: \t\t{:.6f}'.format(validation_loss))
                 print('  validation accuracy:\t\t{:.2f}%'.format(validation_acc * 100))
-                if FLAGS.seq_name == 'sa':
-                    print('  validation Dice LV:\t\t{:.6f}'.format(validation_dice_lv))
-                    print('  validation Dice Myo:\t\t{:.6f}'.format(validation_dice_myo))
-                    print('  validation Dice RV:\t\t{:.6f}\n'.format(validation_dice_rv))
-                elif FLAGS.seq_name == 'la_2ch':
-                    print('  validation Dice LA:\t\t{:.6f}'.format(validation_dice_la))
-                elif FLAGS.seq_name == 'la_4ch':
-                    print('  validation Dice LA:\t\t{:.6f}'.format(validation_dice_la))
-                    print('  validation Dice RA:\t\t{:.6f}'.format(validation_dice_ra))
+                print('  validation Dice LV:\t\t{:.6f}'.format(validation_dice_lv))
+                print('  validation Dice Myo:\t\t{:.6f}'.format(validation_dice_myo))
+                print('  validation Dice RV:\t\t{:.6f}\n'.format(validation_dice_rv))
             else:
                 # Print the results for this iteration
                 print('Iteration {} of {} took {:.3f}s'.format(iteration, FLAGS.train_iteration,
@@ -339,13 +285,9 @@ def main(argv=None):
                 print('  training loss:\t\t{:.6f}'.format(train_loss))
                 print('  training accuracy:\t\t{:.2f}%'.format(train_acc * 100))
 
-            # Save models after every 1000 iterations (1 epoch)
-            # One epoch needs to go through
-            #   1000 subjects * 2 time frames = 2000 images = 1000 training iterations
-            # if one iteration processes 2 images.
-            if iteration % 1000 == 0:
-                saver.save(sess, save_path=os.path.join(model_dir, '{0}.ckpt'.format(model_name)),
-                           global_step=iteration)
+        # Save model
+        saver.save(sess, save_path=os.path.join(model_dir, '{0}.ckpt'.format(model_name)),
+                   global_step=iteration)
 
         # Close the summary writers
         train_writer.close()

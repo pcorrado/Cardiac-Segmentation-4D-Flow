@@ -23,9 +23,6 @@ from ukbb_cardiac.common.image_utils import rescale_intensity
 
 """ Deployment parameters """
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_enum('seq_name', 'sa',
-                         ['sa', 'la_2ch', 'la_4ch'],
-                         'Sequence name.')
 tf.app.flags.DEFINE_string('data_dir', '/vol/bitbucket/wbai/own_work/ukbb_cardiac_demo',
                            'Path to the data set directory, under which images '
                            'are organised in subdirectories for each subject.')
@@ -121,10 +118,8 @@ if __name__ == '__main__':
                 # Determine ES frame according to the minimum LV volume.
                 k = {}
                 k['ED'] = 0
-                if FLAGS.seq_name == 'sa' or (FLAGS.seq_name == 'la_4ch' and FLAGS.seg4):
-                    k['ES'] = np.argmin(np.sum(pred == 1, axis=(0, 1, 2)))
-                else:
-                    k['ES'] = np.argmax(np.sum(pred == 1, axis=(0, 1, 2)))
+                k['ES'] = np.argmin(np.sum(pred == 1, axis=(0, 1, 2)))
+
                 print('  ED frame = {:d}, ES frame = {:d}'.format(k['ED'], k['ES']))
 
                 # Save the segmentation
@@ -132,90 +127,16 @@ if __name__ == '__main__':
                     print('  Saving segmentation ...')
                     nim2 = nib.Nifti1Image(pred, nim.affine)
                     nim2.header['pixdim'] = nim.header['pixdim']
-                    if FLAGS.seq_name == 'la_4ch' and FLAGS.seg4:
-                        seg_name = '{0}/seg4_{1}.nii.gz'.format(data_dir, FLAGS.seq_name)
-                    else:
-                        seg_name = '{0}/seg_{1}.nii.gz'.format(data_dir, FLAGS.seq_name)
+                    seg_name = '{0}/seg_{1}.nii.gz'.format(data_dir, FLAGS.seq_name)
                     nib.save(nim2, seg_name)
 
                     for fr in ['ED', 'ES']:
                         nib.save(nib.Nifti1Image(orig_image[:, :, :, k[fr]], nim.affine),
                                  '{0}/{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, fr))
-                        if FLAGS.seq_name == 'la_4ch' and FLAGS.seg4:
-                            seg_name = '{0}/seg4_{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, fr)
-                        else:
-                            seg_name = '{0}/seg_{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, fr)
+                        seg_name = '{0}/seg_{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, fr)
                         nib.save(nib.Nifti1Image(pred[:, :, :, k[fr]], nim.affine), seg_name)
-            else:
-                # Process ED and ES time frames
-                image_ED_name = '{0}/{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, 'ED')
-                image_ES_name = '{0}/{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, 'ES')
-                if not os.path.exists(image_ED_name) or not os.path.exists(image_ES_name):
-                    print('  Directory {0} does not contain an image with '
-                          'file name {1} or {2}. Skip.'.format(data_dir,
-                                                               os.path.basename(image_ED_name),
-                                                               os.path.basename(image_ES_name)))
-                    continue
 
-                measure = {}
-                for fr in ['ED', 'ES']:
-                    image_name = '{0}/{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, fr)
-
-                    # Read the image
-                    print('  Reading {} ...'.format(image_name))
-                    nim = nib.load(image_name)
-                    image = nim.get_data()
-                    X, Y = image.shape[:2]
-                    if image.ndim == 2:
-                        image = np.expand_dims(image, axis=2)
-
-                    print('  Segmenting {} frame ...'.format(fr))
-                    start_seg_time = time.time()
-
-                    # Intensity rescaling
-                    image = rescale_intensity(image, (1, 99))
-
-                    # Pad the image size to be a factor of 16 so that
-                    # the downsample and upsample procedures in the network
-                    # will result in the same image size at each resolution
-                    # level.
-                    X2, Y2 = int(math.ceil(X / 16.0)) * 16, int(math.ceil(Y / 16.0)) * 16
-                    x_pre, y_pre = int((X2 - X) / 2), int((Y2 - Y) / 2)
-                    x_post, y_post = (X2 - X) - x_pre, (Y2 - Y) - y_pre
-                    image = np.pad(image, ((x_pre, x_post), (y_pre, y_post), (0, 0)), 'constant')
-
-                    # Transpose the shape to NXYC
-                    image = np.transpose(image, axes=(2, 0, 1)).astype(np.float32)
-                    image = np.expand_dims(image, axis=-1)
-
-                    # Evaluate the network
-                    prob, pred = sess.run(['prob:0', 'pred:0'],
-                                          feed_dict={'image:0': image, 'training:0': False})
-
-                    # Transpose and crop the segmentation to recover the original size
-                    pred = np.transpose(pred, axes=(1, 2, 0))
-                    pred = pred[x_pre:x_pre + X, y_pre:y_pre + Y]
-
-                    seg_time = time.time() - start_seg_time
-                    print('  Segmentation time = {:3f}s'.format(seg_time))
-                    table_time += [seg_time]
-                    processed_list += [data]
-
-                    # Save the segmentation
-                    if FLAGS.save_seg:
-                        print('  Saving segmentation ...')
-                        nim2 = nib.Nifti1Image(pred, nim.affine)
-                        nim2.header['pixdim'] = nim.header['pixdim']
-                        if FLAGS.seq_name == 'la_4ch' and FLAGS.seg4:
-                            seg_name = '{0}/seg4_{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, fr)
-                        else:
-                            seg_name = '{0}/seg_{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, fr)
-                        nib.save(nim2, seg_name)
-
-        if FLAGS.process_seq:
-            print('Average segmentation time = {:.3f}s per sequence'.format(np.mean(table_time)))
-        else:
-            print('Average segmentation time = {:.3f}s per frame'.format(np.mean(table_time)))
+        print('Average segmentation time = {:.3f}s per sequence'.format(np.mean(table_time)))
         process_time = time.time() - start_time
         print('Including image I/O, CUDA resource allocation, '
               'it took {:.3f}s for processing {:d} subjects ({:.3f}s per subjects).'.format(

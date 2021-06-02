@@ -1,0 +1,2 @@
+model_checkpoint_path: "/export/home/pcorrado/CODE/ukbb_cardiac/model/FCN_sa_level5_filter16_22333_batch20_iter10000_lr0.001/FCN_sa_level5_filter16_22333_batch20_iter10000_lr0.001.ckpt"
+all_model_checkpoint_paths: "/export/home/pcorrado/CODE/ukbb_cardiac/model/FCN_sa_level5_filter16_22333_batch20_iter10000_lr0.001/FCN_sa_level5_filter16_22333_batch20_iter10000_lr0.001.ckpt"
