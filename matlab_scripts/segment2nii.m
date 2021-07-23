@@ -65,7 +65,7 @@ function segment2nii(matFile)
     index = findIndexInBoundary(x(:),y(:),z(:),t(:),endoX,endoY);
     indexRV = findIndexInBoundary(x(:),y(:),z(:),t(:),rvEndoX,rvEndoY);
 
-    [zBase,zMid,zApex] = divideSlices(t(index),z(index));
+    [zBase,zMid,zApex] = divideSlices(t(index),z(index), info.Transform.T(3,2));
     segImg = int16(zeros(ySize,xSize,zSize,nT));
 
     
@@ -104,12 +104,17 @@ function index = findIndexInBoundary(x,y,z,t,bX,bY)
         end
     end
 end
-function [zBase,zMid,zApex] = divideSlices(t,z)
+function [zBase,zMid,zApex] = divideSlices(t,z,ky)
     a = unique([t,z],'rows');
     for tt=min(a(:,1)):max(a(:,1))
         ind = find(a(:,1)==tt);
         zBase{tt} = min(a(ind,2)):round(min(a(ind,2)) + (max(a(ind,2))-min(a(ind,2))-2)/3);%#ok<AGROW>
         zApex{tt} = round(max(a(ind,2)) - (max(a(ind,2))-min(a(ind,2))-2)/3):max(a(ind,2)); %#ok<AGROW>
         zMid{tt} = max(zBase{tt}+1):min(zApex{tt}-1); %#ok<AGROW>
+    end
+    if ky<0
+        temp = zBase;
+        zBase = zApex;
+        zApex = temp;
     end
 end
