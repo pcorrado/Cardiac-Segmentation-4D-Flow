@@ -12,13 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-import os
-import time
-import math
+import os, sys, time, math
 import numpy as np
 import nibabel as nib
-import tensorflow as tf
-from ukbb_cardiac.common.image_utils import rescale_intensity
+import tensorflow.compat.v1 as tf
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from image_utils import rescale_intensity
 
 
 """ Deployment parameters """
@@ -62,7 +61,7 @@ if __name__ == '__main__':
 
             if FLAGS.process_seq:
                 # Process the temporal sequence
-                image_name = '{0}/{1}.nii'.format(data_dir, FLAGS.seq_name)
+                image_name = '{0}/sa.nii'.format(data_dir)
 
                 if not os.path.exists(image_name):
                     print('  Directory {0} does not contain an image with file '
@@ -127,13 +126,13 @@ if __name__ == '__main__':
                     print('  Saving segmentation ...')
                     nim2 = nib.Nifti1Image(pred, nim.affine)
                     nim2.header['pixdim'] = nim.header['pixdim']
-                    seg_name = '{0}/seg_{1}.nii.gz'.format(data_dir, FLAGS.seq_name)
+                    seg_name = '{0}/seg_sa.nii.gz'.format(data_dir)
                     nib.save(nim2, seg_name)
 
                     for fr in ['ED', 'ES']:
                         nib.save(nib.Nifti1Image(orig_image[:, :, :, k[fr]], nim.affine),
-                                 '{0}/{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, fr))
-                        seg_name = '{0}/seg_{1}_{2}.nii.gz'.format(data_dir, FLAGS.seq_name, fr)
+                                 '{0}/sa_{1}.nii.gz'.format(data_dir, fr))
+                        seg_name = '{0}/seg_sa_{1}.nii.gz'.format(data_dir, fr)
                         nib.save(nib.Nifti1Image(pred[:, :, :, k[fr]], nim.affine), seg_name)
 
         print('Average segmentation time = {:.3f}s per sequence'.format(np.mean(table_time)))

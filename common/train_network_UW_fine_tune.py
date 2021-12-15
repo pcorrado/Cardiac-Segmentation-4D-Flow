@@ -13,47 +13,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import os
-import time
-import random
+import os, sys, time, random
 import numpy as np
 import nibabel as nib
-import tensorflow as tf
-from ukbb_cardiac.common.network import build_FCN
-from ukbb_cardiac.common.image_utils import tf_categorical_accuracy, tf_categorical_dice
-from ukbb_cardiac.common.image_utils import crop_image, rescale_intensity, data_augmenter
-import matplotlib.pyplot as plt
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior() 
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from network import build_FCN
+from image_utils import tf_categorical_accuracy, tf_categorical_dice, rescale_intensity, data_augmenter, crop_image
 
 
-""" Parameters """
-FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_integer('image_size', 192,
-                            'Image size after interpolating.')
-tf.app.flags.DEFINE_integer('train_batch_size', 20,
-                            'Number of images for each training batch.')
-tf.app.flags.DEFINE_integer('validation_batch_size', 20,
-                            'Number of images for each validation batch.')
-tf.app.flags.DEFINE_integer('train_iteration', 10000,
-                            'Number of training iterations.')
-tf.app.flags.DEFINE_integer('num_filter', 16,
-                            'Number of filters for the first convolution layer.')
-tf.app.flags.DEFINE_integer('num_level', 5,
-                            'Number of network levels.')
-tf.app.flags.DEFINE_float('learning_rate', 1e-3,
-                          'Learning rate.')
-tf.app.flags.DEFINE_string('dataset_dir',
-                           '/data/data_mrcv/45_DATA_HUMANS/CHEST/STUDIES/2020_CARDIAC_DL_SEGMENTATION_CORRADO/',
-                           'Path to the dataset directory, which is split into '
-                           'training, validation and test subdirectories.')
-tf.app.flags.DEFINE_string('log_dir',
-                           '/export/home/pcorrado/CODE/ukbb_cardiac/logFT',
-                           'Directory for saving the log file.')
-tf.app.flags.DEFINE_string('checkpoint_dir',
-                           '/export/home/pcorrado/CODE/ukbb_cardiac/modelFT',
-                           'Directory for saving the trained model.')
-tf.app.flags.DEFINE_string('old_model_path',
-                          '/export/home/pcorrado/CODE/ukbb_cardiac/trained_model/FCN_sa',
-                          'Path to the saved trained model.')
+imgSize = 192 # Image size after interpolating
+train_batch_size = 20 # Number of images for each training batch
+validation_batch_size = 20 # Number of images for each validation batch
+train_iteration = 10000 # Number of training iterations
+num_filter = 16 #Number of filters for the first convolution layer
+num_level = 5 # Number of network levels
+learning_rate = 1e-3 # Learning rate
+old_model_path = '/home/pcorrado/Cardiac-DL-Segmentation-Paper/Cardiac-Segmentation-4D-Flow/ukbb_trained_model/FCN_sa'
+dataset_dir = '/home/pcorrado/Cardiac-DL-Segmentation-Paper/' # Path to the dataset directory
+frozenLayers = 15 # number of layers to freeze for transfer learning
+log_dir = '/home/pcorrado/Cardiac-DL-Segmentation-Paper/log_{}_layers_frozen'.format(frozenLayers) # Directory for saving the log file
+checkpoint_dir = '/home/pcorrado/Cardiac-DL-Segmentation-Paper/model_{}_layers_frozen'.format(frozenLayers) # Directory for saving the trained model
+#Path to the saved trained model
 
 
 def get_random_batch(filename_list, batch_size, image_size=192, data_augmentation=False,
@@ -87,9 +69,10 @@ def get_random_batch(filename_list, batch_size, image_size=192, data_augmentatio
 
         # Normalise the image size
         X, Y, Z, T = image.shape
-        # cx, cy = int(X / 2), int(Y / 2)
-        # image = crop_image(image, cx, cy, image_size)
-        # label = crop_image(label, cx, cy, image_size)
+        if X != image_size or Y != image_size:
+            cx, cy = int(X / 2), int(Y / 2)
+            image = crop_image(image, cx, cy, image_size)
+            label = crop_image(label, cx, cy, image_size)
 
 
         # Intensity rescaling
@@ -121,19 +104,18 @@ def get_random_batch(filename_list, batch_size, image_size=192, data_augmentatio
     return images, labels
 
 
-def main(argv=None):
-    """ Main function """
+if __name__ == '__main__':
     # Go through each subset (training, validation, test) under the data directory
     # and list the file names of the subjects
     data_list = {}
-    for k in ['train', 'validation', 'test']:
-        subset_dir = os.path.join(FLAGS.dataset_dir, k)
+    for k in ['train', 'test']:
+        subset_dir = os.path.join(dataset_dir, k)
         data_list[k] = []
 
         for data in sorted(os.listdir(subset_dir)):
             data_dir = os.path.join(subset_dir, data)
-            image_name = '{0}/{1}.nii'.format(data_dir, FLAGS.seq_name)
-            label_name = '{0}/label_{1}.nii'.format(data_dir, FLAGS.seq_name)
+            image_name = '{0}/sa.nii'.format(data_dir)
+            label_name = '{0}/label_sa.nii'.format(data_dir)
             if os.path.exists(image_name) and os.path.exists(label_name):
                 data_list[k] += [[image_name, label_name]]
 
@@ -157,14 +139,14 @@ def main(argv=None):
     n_class = 4
 
     # The number of resolution levels
-    n_level = FLAGS.num_level
+    n_level = num_level
 
     # The number of filters at each resolution level
     # Follow the VGG philosophy, increasing the dimension
     # by a factor of 2 for each level
     n_filter = []
     for i in range(n_level):
-        n_filter += [FLAGS.num_filter * pow(2, i)]
+        n_filter += [num_filter * pow(2, i)]
     print('Number of filters at each level =', n_filter)
     print('Note: The connection between neurons is proportional to '
           'n_filter * n_filter. Increasing n_filter by a factor of 2 '
@@ -178,7 +160,7 @@ def main(argv=None):
     n_block = [2, 2, 3, 3, 3]
     logits = build_FCN(image_pl, n_class, n_level=n_level,
                        n_filter=n_filter, n_block=n_block,
-                       training=training_pl, same_dim=32, fc=64)
+                       training=training_pl, same_dim=32, fc=64, frozenLayers=frozenLayers)
 
     # The softmax probability and the predicted segmentation
     prob = tf.nn.softmax(logits, name='prob')
@@ -196,11 +178,9 @@ def main(argv=None):
     dice_lv = tf_categorical_dice(pred, label_pl, 1)
     dice_myo = tf_categorical_dice(pred, label_pl, 2)
     dice_rv = tf_categorical_dice(pred, label_pl, 3)
-    dice_la = tf_categorical_dice(pred, label_pl, 1)
-    dice_ra = tf_categorical_dice(pred, label_pl, 2)
 
     # Optimiser
-    lr = FLAGS.learning_rate
+    lr = learning_rate
 
     # We need to add the operators associated with batch_normalization
     # to the optimiser, according to
@@ -212,9 +192,9 @@ def main(argv=None):
 
     # Model name and directory
     model_name = 'FCN_{0}_level{1}_filter{2}_{3}_batch{4}_iter{5}_lr{6}'.format(
-        FLAGS.seq_name, n_level, n_filter[0], ''.join([str(x) for x in n_block]),
-        FLAGS.train_batch_size, FLAGS.train_iteration, FLAGS.learning_rate)
-    model_dir = os.path.join(FLAGS.checkpoint_dir, model_name)
+        'sa', n_level, n_filter[0], ''.join([str(x) for x in n_block]),
+        train_batch_size, train_iteration, learning_rate)
+    model_dir = os.path.join(checkpoint_dir, model_name)
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
 
@@ -228,7 +208,7 @@ def main(argv=None):
         saver = tf.train.Saver(max_to_keep=20)
 
         # Summary writer
-        summary_dir = os.path.join(FLAGS.log_dir, model_name)
+        summary_dir = os.path.join(log_dir, model_name)
         if os.path.exists(summary_dir):
             os.system('rm -rf {0}'.format(summary_dir))
         train_writer = tf.summary.FileWriter(os.path.join(summary_dir, 'train'), graph=sess.graph)
@@ -239,19 +219,19 @@ def main(argv=None):
 
         # Import the computation graph and restore the variable values
         print('Loading pretrained model...')
-        saverOld = tf.train.import_meta_graph('{0}.meta'.format(FLAGS.old_model_path))
-        saverOld.restore(sess, '{0}'.format(FLAGS.old_model_path))
+        saverOld = tf.train.import_meta_graph('{0}.meta'.format(old_model_path))
+        saverOld.restore(sess, '{0}'.format(old_model_path))
 
         # Iterate
-        for iteration in range(1, 1 + FLAGS.train_iteration):
+        for iteration in range(1, 1 + train_iteration):
 
             # For each iteration, we randomly choose a batch of subjects
             print('Iteration {0}: training...'.format(iteration))
             start_time_iter = time.time()
 
             images, labels = get_random_batch(data_list['train'],
-                                              FLAGS.train_batch_size,
-                                              image_size=FLAGS.image_size,
+                                              train_batch_size,
+                                              image_size=imgSize,
                                               data_augmentation=True,
                                               shift=0, rotate=90, scale=0.2,
                                               intensity=0, flip=False)
@@ -266,45 +246,11 @@ def main(argv=None):
             summary.value.add(tag='accuracy', simple_value=train_acc)
             train_writer.add_summary(summary, iteration)
 
-            # After every ten iterations, we perform validation
-            if iteration % 10 == 0:
-                print('Iteration {0}: validation...'.format(iteration))
-                images, labels = get_random_batch(data_list['validation'],
-                                                  FLAGS.validation_batch_size,
-                                                  image_size=FLAGS.image_size,
-                                                  data_augmentation=False)
-
-                validation_loss, validation_acc, validation_dice_lv, validation_dice_myo, validation_dice_rv = \
-                    sess.run([loss, accuracy, dice_lv, dice_myo, dice_rv],
-                             {image_pl: images, label_pl: labels, training_pl: False})
-
-
-                summary = tf.Summary()
-                summary.value.add(tag='loss', simple_value=validation_loss)
-                summary.value.add(tag='accuracy', simple_value=validation_acc)
-                summary.value.add(tag='dice_lv', simple_value=validation_dice_lv)
-                summary.value.add(tag='dice_myo', simple_value=validation_dice_myo)
-                summary.value.add(tag='dice_rv', simple_value=validation_dice_rv)
-
-                validation_writer.add_summary(summary, iteration)
-
-                # Print the results for this iteration
-                print('Iteration {} of {} took {:.3f}s'.format(iteration, FLAGS.train_iteration,
-                                                               time.time() - start_time_iter))
-                print('  training loss:\t\t{:.6f}'.format(train_loss))
-                print('  training accuracy:\t\t{:.2f}%'.format(train_acc * 100))
-                print('  validation loss: \t\t{:.6f}'.format(validation_loss))
-                print('  validation accuracy:\t\t{:.2f}%'.format(validation_acc * 100))
-                print('  validation Dice LV:\t\t{:.6f}'.format(validation_dice_lv))
-                print('  validation Dice Myo:\t\t{:.6f}'.format(validation_dice_myo))
-                print('  validation Dice RV:\t\t{:.6f}\n'.format(validation_dice_rv))
-
-            else:
-                # Print the results for this iteration
-                print('Iteration {} of {} took {:.3f}s'.format(iteration, FLAGS.train_iteration,
-                                                               time.time() - start_time_iter))
-                print('  training loss:\t\t{:.6f}'.format(train_loss))
-                print('  training accuracy:\t\t{:.2f}%'.format(train_acc * 100))
+            # Print the results for this iteration
+            print('Iteration {} of {} took {:.3f}s'.format(iteration, train_iteration,
+                                                            time.time() - start_time_iter))
+            print('  training loss:\t\t{:.6f}'.format(train_loss))
+            print('  training accuracy:\t\t{:.2f}%'.format(train_acc * 100))
 
         # Save model
         saver.save(sess, save_path=os.path.join(model_dir, '{0}.ckpt'.format(model_name)),
@@ -314,6 +260,3 @@ def main(argv=None):
         train_writer.close()
         validation_writer.close()
         print('Training took {:.3f}s in total.\n'.format(time.time() - start_time))
-
-if __name__ == '__main__':
-    tf.app.run()
